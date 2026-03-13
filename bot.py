@@ -163,7 +163,8 @@ def home():
 
 @app.route("/ping")
 def ping():
-    return "pong", 200
+    from flask import Response
+    return Response("ok", status=200, mimetype="text/plain")
 
 
 def run_web():
