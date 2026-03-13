@@ -19,30 +19,33 @@ def check_message(message):
         text = ""
 
         if message.text:
-            text = message.text.lower()
+            text += message.text.lower()
 
         if message.caption:
-            text = message.caption.lower()
+            text += message.caption.lower()
+
+        print("NEW MESSAGE:", text)
 
         admins = bot.get_chat_administrators(message.chat.id)
         admin_ids = [admin.user.id for admin in admins]
 
-        # админы могут писать всё
         if message.from_user.id in admin_ids:
+            print("ADMIN MESSAGE - SKIP")
             return
 
-        # разрешенные слова
         if any(word in text for word in allowed_words):
+            print("ALLOWED MESSAGE")
             return
 
-        # удаляем сообщение
+        print("DELETE MESSAGE")
+
         bot.delete_message(message.chat.id, message.message_id)
 
         user_id = message.from_user.id
-
-        # если уже предупреждали недавно — не спамим
         now = time.time()
+
         if user_id in recent_warnings and now - recent_warnings[user_id] < 5:
+            print("WARNING ALREADY SENT")
             return
 
         recent_warnings[user_id] = now
@@ -56,7 +59,7 @@ def check_message(message):
         bot.delete_message(message.chat.id, msg.message_id)
 
     except Exception as e:
-        print(e)
+        print("ERROR:", e)
 
 
 print("Бот запущен")
@@ -76,3 +79,4 @@ def run_bot():
 
 threading.Thread(target=run_web).start()
 threading.Thread(target=run_bot).start()
+
