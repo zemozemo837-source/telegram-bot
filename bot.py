@@ -2,6 +2,7 @@ import telebot
 import time
 from flask import Flask
 import threading
+import os
 
 TOKEN = "8706659971:AAEQwG2iNYKeLcF-ItT4RHYNoI7LkITaGfs"
 
@@ -46,10 +47,11 @@ def home():
     return "Bot is running"
 
 def run_web():
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
 def run_bot():
     bot.infinity_polling()
 
 threading.Thread(target=run_web).start()
 threading.Thread(target=run_bot).start()
+
