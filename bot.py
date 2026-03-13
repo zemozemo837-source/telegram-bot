@@ -2,28 +2,29 @@ import telebot
 import time
 import os
 import threading
+import requests
 from flask import Flask
 
 TOKEN = os.getenv("BOT_TOKEN")
+# Укажи свой URL на Render, например: https://my-bot.onrender.com
+RENDER_URL = os.getenv("RENDER_URL", "")
+
 bot = telebot.TeleBot(TOKEN, threaded=True)
 
-# Слова которые разрешают сообщение (обычные участники)
+# Слова которые разрешают сообщение обычным участникам
 ALLOWED_WORDS = ["ищу", "сниму", "арендую"]
 
 # Кэш администраторов {chat_id: (timestamp, set_of_admin_ids)}
-# Обновляется раз в 5 минут — не дёргаем API на каждое сообщение
 admin_cache = {}
-ADMIN_CACHE_TTL = 300
+ADMIN_CACHE_TTL = 300  # 5 минут
 
-# Защита от дублей предупреждений
-# {user_id: timestamp} — не шлём повторно в течение 15 сек
+# Защита от дублей предупреждений {user_id: timestamp}
 recent_warnings = {}
-WARNING_COOLDOWN = 15
+WARNING_COOLDOWN = 15  # секунд
 
-# Защита от медиагрупп (альбомов)
-# {media_group_id: timestamp} — альбом = одно предупреждение
+# Защита от медиагрупп (альбомов) {media_group_id: timestamp}
 handled_media_groups = {}
-MEDIA_GROUP_TTL = 10
+MEDIA_GROUP_TTL = 10  # секунд
 
 
 def get_admin_ids(chat_id):
@@ -36,7 +37,7 @@ def get_admin_ids(chat_id):
         admins = bot.get_chat_administrators(chat_id)
         ids = {a.user.id for a in admins}
         admin_cache[chat_id] = (now, ids)
-        print(f"Admin cache updated for chat {chat_id}: {ids}")
+        print(f"Admin cache updated: {len(ids)} admins")
         return ids
     except Exception as e:
         print(f"ERROR get_admin_ids: {e}")
@@ -44,7 +45,7 @@ def get_admin_ids(chat_id):
 
 
 def cleanup():
-    """Удаляем старые записи из словарей чтобы не копилась память."""
+    """Чистим старые записи."""
     now = time.time()
     for uid in list(recent_warnings.keys()):
         if now - recent_warnings[uid] > WARNING_COOLDOWN * 5:
@@ -67,6 +68,23 @@ def send_and_delete_warning(chat_id, delay=10):
         bot.delete_message(chat_id, msg.message_id)
     except Exception as e:
         print(f"ERROR send_warning: {e}")
+
+
+def self_ping():
+    """
+    Пингует сам себя каждые 5 минут чтобы Render не засыпал.
+    Запускается в отдельном потоке.
+    """
+    if not RENDER_URL:
+        print("RENDER_URL не задан — самопинг отключён")
+        return
+    while True:
+        time.sleep(270)  # 4.5 минуты
+        try:
+            r = requests.get(f"{RENDER_URL}/ping", timeout=10)
+            print(f"Self-ping: {r.status_code}")
+        except Exception as e:
+            print(f"Self-ping error: {e}")
 
 
 @bot.message_handler(content_types=[
@@ -107,27 +125,25 @@ def check_message(message):
         except Exception as e:
             print(f"Delete error: {e}")
 
-        # --- Защита от дублей предупреждений ---
+        # Защита от дублей
         now = time.time()
         cleanup()
 
-        # Если это часть альбома — проверяем не обработан ли уже альбом
+        # Альбом — одно предупреждение на всю группу фото
         if media_group_id:
             if media_group_id in handled_media_groups:
-                print(f"Media group {media_group_id} already handled — skip warning")
+                print(f"Album {media_group_id} already handled — skip")
                 return
             handled_media_groups[media_group_id] = now
 
-        # Проверяем кулдаун для пользователя
-        last_warn = recent_warnings.get(user_id, 0)
-        if now - last_warn < WARNING_COOLDOWN:
-            print(f"Warning cooldown for user {user_id} — skip")
+        # Кулдаун на пользователя
+        if now - recent_warnings.get(user_id, 0) < WARNING_COOLDOWN:
+            print(f"Cooldown for uid={user_id} — skip")
             return
 
         recent_warnings[user_id] = now
 
-        # Отправляем предупреждение в отдельном потоке
-        # чтобы sleep(10) не блокировал обработку других сообщений
+        # Предупреждение в отдельном потоке (не блокируем основной)
         threading.Thread(
             target=send_and_delete_warning,
             args=(chat_id,),
@@ -138,7 +154,7 @@ def check_message(message):
         print(f"HANDLER ERROR: {e}")
 
 
-# ---- Flask для Render (keepalive) ----
+# ---- Flask для Render ----
 app = Flask(__name__)
 
 @app.route("/")
@@ -167,4 +183,5 @@ def run_bot():
 
 if __name__ == "__main__":
     threading.Thread(target=run_web, daemon=True).start()
+    threading.Thread(target=self_ping, daemon=True).start()
     run_bot()
