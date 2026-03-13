@@ -4,27 +4,48 @@ from flask import Flask
 import threading
 import os
 
-TOKEN = "8706659971:AAEQwG2iNYKeLcF-ItT4RHYNoI7LkITaGfs"
+TOKEN = os.getenv("BOT_TOKEN")
 
 bot = telebot.TeleBot(TOKEN)
 
 allowed_words = ["ищу", "сниму"]
 
-@bot.message_handler(func=lambda message: True, content_types=['text','photo','video','document','audio','voice','sticker'])
+# защита от спама сообщений бота
+recent_warnings = {}
+
+@bot.message_handler(content_types=['text','photo','video','document','audio','voice','sticker'])
 def check_message(message):
     try:
-        text = message.text.lower() if message.text else ""
+        text = ""
+
+        if message.text:
+            text = message.text.lower()
+
+        if message.caption:
+            text = message.caption.lower()
 
         admins = bot.get_chat_administrators(message.chat.id)
         admin_ids = [admin.user.id for admin in admins]
 
+        # админы могут писать всё
         if message.from_user.id in admin_ids:
             return
 
+        # разрешенные слова
         if any(word in text for word in allowed_words):
             return
 
+        # удаляем сообщение
         bot.delete_message(message.chat.id, message.message_id)
+
+        user_id = message.from_user.id
+
+        # если уже предупреждали недавно — не спамим
+        now = time.time()
+        if user_id in recent_warnings and now - recent_warnings[user_id] < 5:
+            return
+
+        recent_warnings[user_id] = now
 
         msg = bot.send_message(
             message.chat.id,
@@ -36,6 +57,7 @@ def check_message(message):
 
     except Exception as e:
         print(e)
+
 
 print("Бот запущен")
 
@@ -54,4 +76,3 @@ def run_bot():
 
 threading.Thread(target=run_web).start()
 threading.Thread(target=run_bot).start()
-
