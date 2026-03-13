@@ -1,5 +1,7 @@
 import telebot
 import time
+from flask import Flask
+import threading
 
 TOKEN = "8706659971:AAEQwG2iNYKeLcF-ItT4RHYNoI7LkITaGfs"
 
@@ -15,15 +17,12 @@ def check_message(message):
         admins = bot.get_chat_administrators(message.chat.id)
         admin_ids = [admin.user.id for admin in admins]
 
-        # администраторы и риелторы могут писать всё
         if message.from_user.id in admin_ids:
             return
 
-        # обычные пользователи могут писать только "ищу" или "сниму"
         if any(word in text for word in allowed_words):
             return
 
-        # удаляем сообщение
         bot.delete_message(message.chat.id, message.message_id)
 
         msg = bot.send_message(
@@ -38,4 +37,19 @@ def check_message(message):
         print(e)
 
 print("Бот запущен")
-bot.infinity_polling()
+
+# ---- WEB SERVER ДЛЯ RENDER ----
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running"
+
+def run_web():
+    app.run(host="0.0.0.0", port=10000)
+
+def run_bot():
+    bot.infinity_polling()
+
+threading.Thread(target=run_web).start()
+threading.Thread(target=run_bot).start()
